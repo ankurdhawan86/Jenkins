@@ -1,0 +1,227 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<project>
+  <actions/>
+  <description>This is similar to the build job</description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <hudson.plugins.jira.JiraProjectProperty plugin="jira@3.1.3"/>
+    <jenkins.model.BuildDiscarderProperty>
+      <strategy class="hudson.tasks.LogRotator">
+        <daysToKeep>-1</daysToKeep>
+        <numToKeep>99</numToKeep>
+        <artifactDaysToKeep>-1</artifactDaysToKeep>
+        <artifactNumToKeep>-1</artifactNumToKeep>
+      </strategy>
+    </jenkins.model.BuildDiscarderProperty>
+    <com.sonyericsson.rebuild.RebuildSettings plugin="rebuild@1.31">
+      <autoRebuild>false</autoRebuild>
+      <rebuildDisabled>false</rebuildDisabled>
+    </com.sonyericsson.rebuild.RebuildSettings>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+        <hudson.model.StringParameterDefinition>
+          <name>BRANCH</name>
+          <description></description>
+          <defaultValue>feature/readFromBuildProperties</defaultValue>
+          <trim>false</trim>
+        </hudson.model.StringParameterDefinition>
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+  </properties>
+  <scm class="hudson.plugins.git.GitSCM" plugin="git@4.5.2">
+    <configVersion>2</configVersion>
+    <userRemoteConfigs>
+      <hudson.plugins.git.UserRemoteConfig>
+        <url>https://bitbucket.aws.foxtel.com.au/scm/mis/testrepo.git</url>
+        <credentialsId>bitbucket-jenkins</credentialsId>
+      </hudson.plugins.git.UserRemoteConfig>
+    </userRemoteConfigs>
+    <branches>
+      <hudson.plugins.git.BranchSpec>
+        <name>refs/heads/${BRANCH}</name>
+      </hudson.plugins.git.BranchSpec>
+    </branches>
+    <doGenerateSubmoduleConfigurations>false</doGenerateSubmoduleConfigurations>
+    <submoduleCfg class="list"/>
+    <extensions/>
+  </scm>
+  <canRoam>true</canRoam>
+  <disabled>false</disabled>
+  <blockBuildWhenDownstreamBuilding>false</blockBuildWhenDownstreamBuilding>
+  <blockBuildWhenUpstreamBuilding>false</blockBuildWhenUpstreamBuilding>
+  <jdk>Java 1.8</jdk>
+  <triggers/>
+  <concurrentBuild>false</concurrentBuild>
+  <builders>
+    <hudson.tasks.Shell>
+      <command>#!/bin/bash
+
+#sleep 1m
+
+TOPDIR=`pwd | sed &apos;$s/\/core\/.*/\/core/&apos;`
+echo &quot;TOPDIR=$TOPDIR&quot;
+
+# Jenkins passes the git branch down, but if running outside jenkins, we will need to derive it
+if [ -z &quot;$JENKINS_HOME&quot; ] || [ -z &quot;$GIT_BRANCH&quot; ]
+then 
+	GIT_BRANCH=`git rev-parse --abbrev-ref HEAD`
+    echo &quot;GIT_BRANCH=$GIT_BRANCH&quot;
+fi
+
+GIT_COMMIT_ID_SHORT=`git rev-parse --short=11 HEAD`
+GIT_COMMIT_COUNT=`git rev-list --count HEAD`
+
+echo &quot;GIT_COMMIT_ID_SHORT=$GIT_COMMIT_ID_SHORT&quot;
+echo &quot;GIT_COMMIT_COUNT=$GIT_COMMIT_COUNT&quot;
+
+
+IFS=&apos;/&apos; read -r -a TOKENS &lt;&lt;&lt; &quot;$GIT_BRANCH&quot;
+TOKEN_COUNT=&quot;${#TOKENS[@]}&quot;
+
+if [ $TOKEN_COUNT -eq 0 ]
+then
+	BRANCH_TYPE=XXXX
+	BRANCH_NAME=XXXX
+elif [ $TOKEN_COUNT -eq 1 ]
+then
+	BRANCH_TYPE=&quot;${TOKENS[-1]}&quot;
+	BRANCH_NAME=&quot;${TOKENS[-1]}&quot;
+    echo &quot;BRANCH_TYPE=$BRANCH_TYPE&quot;
+    echo &quot;BRANCH_NAME=$BRANCH_NAME&quot;
+else
+	BRANCH_TYPE=&quot;${TOKENS[-2]}&quot;
+	BRANCH_NAME=&quot;${TOKENS[-1]}&quot;
+    echo &quot;BRANCH_NAME=$BRANCH_NAME&quot;
+    echo &quot;BRANCH_TYPE=$BRANCH_TYPE&quot;
+fi
+
+BUILD_TYPE=$BRANCH_TYPE
+export BUILD_TYPE
+
+
+BUILD_VERSION=$BRANCH_NAME
+if [ &quot;$BUILD_TYPE&quot; = &quot;release&quot; ]
+then
+	BUILD_VERSION=`echo $BUILD_VERSION | sed &apos;s/^[^0-9]*/v/&apos;`
+	BUILD_VERSION=`echo $BUILD_VERSION | sed &apos;s/[^0-9]*$//&apos;`
+fi
+
+BUILD_VERSION=${BUILD_VERSION}.${GIT_COMMIT_COUNT}
+export BUILD_VERSION
+
+echo &quot;BUILD_VERSION=$BUILD_VERSION&quot;
+
+OUTFILE=$TOPDIR/buildvars.txt
+echo &quot;GIT_COMMIT_ID_SHORT=$GIT_COMMIT_ID_SHORT&quot; &gt; $OUTFILE
+echo &quot;BUILD_TYPE=$BUILD_TYPE&quot; &gt;&gt; $OUTFILE
+echo &quot;BUILD_VERSION=$BUILD_VERSION&quot; &gt;&gt; $OUTFILE
+
+#sed &quot;s/^MILESTONE.*/MILESTONE=$BUILD_TYPE/&quot; | sed &quot;s/^SVN_REVISION.*/SVN_REVISION=$BUILD_VERSION\_$GIT_COMMIT_ID_SHORT/&quot;
+echo &quot;MILESTONE=$BUILD_TYPE&quot; &gt;&gt; $TOPDIR/build.properties
+echo &quot;SVN_REVISION=${BUILD_VERSION}_${GIT_COMMIT_ID_SHORT}&quot; &gt;&gt; $TOPDIR/build.properties</command>
+      <configuredLocalRules/>
+    </hudson.tasks.Shell>
+    <EnvInjectBuilder plugin="envinject@2.3.0">
+      <info>
+        <propertiesFilePath>buildvars.txt</propertiesFilePath>
+      </info>
+    </EnvInjectBuilder>
+    <org.jenkinsci.plugins.buildnameupdater.BuildNameUpdater plugin="build-name-setter@2.1.0">
+      <buildName>version.txt</buildName>
+      <macroTemplate>${BUILD_VERSION}</macroTemplate>
+      <fromFile>false</fromFile>
+      <fromMacro>true</fromMacro>
+      <macroFirst>false</macroFirst>
+    </org.jenkinsci.plugins.buildnameupdater.BuildNameUpdater>
+    <hudson.tasks.Shell>
+      <command>#!/bin/sh
+
+echo $BRANCH
+
+# Check if we&apos;ve already built this version
+ARCHIVE_DIR=/archive/builds/Core/ProofOfConcept/Seamless/OldStuff/BuildJob2
+#ARCHIVE_DIR=/archive/builds/Core/ProofOfConcept/Seamless/OldStuff/BuildJob
+FILES=`find ${ARCHIVE_DIR} -name \*\-${BUILD_VERSION}\_[0-9a-f]*.jar`
+if [ -z &quot;$FILES&quot; ]
+then
+    FILES=`find ${ARCHIVE_DIR} -name \*\-${BUILD_VERSION}.jar`
+fi
+
+if [ -n &quot;$FILES&quot; ]
+then
+    ARTIFACT_FULL_PATH=`ls -ltr $FILES |tail -1 | sed &apos;s/^.* //&apos;`
+    echo $ARTIFACT_FULL_PATH &gt; HeresOneIPreparedEarlier.txt
+    echo &quot;==========================================================&quot;
+    echo &quot;ERROR: This version has already been built!&quot;
+    echo &quot;Here&apos;s the one I prepared earlier: $ARTIFACT_FULL_PATH&quot;
+    echo &quot;==========================================================&quot;
+    exit 1
+fi
+
+# no previous build - go ahead and build now
+exit 0</command>
+      <configuredLocalRules/>
+    </hudson.tasks.Shell>
+    <hudson.tasks.Ant plugin="ant@1.11">
+      <targets>clean-build</targets>
+      <antName>Ant 1.8.4</antName>
+    </hudson.tasks.Ant>
+    <hudson.tasks.Shell>
+      <command>#!/bin/bash +x
+pwd
+cp build/jar/*.jar .
+
+#LAST_TAG=`git describe --tags --abbrev=0`
+#echo &quot;Changes versus ${LAST_TAG}:&quot; &gt; changes.txt
+#git log ${LAST_TAG}..HEAD --oneline --no-merges &gt;&gt; changes.txt
+
+# write info file
+ARTIFACT=`ls *.jar`
+MD5=`openssl md5 $ARTIFACT | sed &apos;s/^.* //&apos;`
+
+FILENAME=$BUILD_VERSION.txt
+echo &quot;Branch: $BRANCH&quot; &gt;&gt; $FILENAME
+echo &quot;Build Version: $BUILD_VERSION&quot; &gt;&gt; $FILENAME
+echo &quot;Git Commit Id (short): $GIT_COMMIT_ID_SHORT&quot; &gt;&gt; $FILENAME
+echo &quot;Git Commit Id (full): $GIT_COMMIT&quot; &gt;&gt; $FILENAME
+echo &quot;Artifact: $ARTIFACT&quot; &gt;&gt; $FILENAME
+echo &quot;MD5: $MD5&quot; &gt;&gt; $FILENAME
+
+# update buildvars
+echo &quot;# the following added after build&quot; &gt;&gt; buildvars.txt
+echo &quot;BRANCH=$BRANCH&quot; &gt;&gt; buildvars.txt
+echo &quot;GIT_COMMIT_ID_FULL=$GIT_COMMIT&quot; &gt;&gt; buildvars.txt
+echo &quot;ARTIFACT=$ARTIFACT&quot; &gt;&gt; buildvars.txt
+echo &quot;MD5=$MD5&quot; &gt;&gt; buildvars.txt
+
+echo &quot;BUILD_TYPE=$BUILD_TYPE&quot;
+echo &quot;BUILD_VERSION=$BUILD_VERSION&quot;
+#echo &quot;CREATE_GIT_TAG=$CREATE_GIT_TAG&quot;</command>
+      <configuredLocalRules/>
+    </hudson.tasks.Shell>
+  </builders>
+  <publishers>
+    <hudson.tasks.ArtifactArchiver>
+      <artifacts>*.jar, *.txt</artifacts>
+      <allowEmptyArchive>false</allowEmptyArchive>
+      <onlyIfSuccessful>false</onlyIfSuccessful>
+      <fingerprint>false</fingerprint>
+      <defaultExcludes>true</defaultExcludes>
+      <caseSensitive>true</caseSensitive>
+      <followSymlinks>false</followSymlinks>
+    </hudson.tasks.ArtifactArchiver>
+  </publishers>
+  <buildWrappers>
+    <hudson.plugins.ws__cleanup.PreBuildCleanup plugin="ws-cleanup@0.38">
+      <deleteDirs>false</deleteDirs>
+      <cleanupParameter></cleanupParameter>
+      <externalDelete></externalDelete>
+      <disableDeferredWipeout>false</disableDeferredWipeout>
+    </hudson.plugins.ws__cleanup.PreBuildCleanup>
+    <hudson.plugins.timestamper.TimestamperBuildWrapper plugin="timestamper@1.11.8"/>
+    <hudson.tasks.AntWrapper plugin="ant@1.11">
+      <installation>Ant 1.8.4</installation>
+      <jdk>Java 1.6 (Oracle)</jdk>
+    </hudson.tasks.AntWrapper>
+  </buildWrappers>
+</project>

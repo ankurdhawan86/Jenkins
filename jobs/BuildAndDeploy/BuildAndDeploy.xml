@@ -1,0 +1,183 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<flow-definition plugin="workflow-job@2.40">
+  <actions>
+    <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobAction plugin="pipeline-model-definition@1.8.4"/>
+    <org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction plugin="pipeline-model-definition@1.8.4">
+      <jobProperties>
+        <string>org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty</string>
+      </jobProperties>
+      <triggers/>
+      <parameters/>
+      <options/>
+    </org.jenkinsci.plugins.pipeline.modeldefinition.actions.DeclarativeJobPropertyTrackerAction>
+  </actions>
+  <description>Build and deploy</description>
+  <keepDependencies>false</keepDependencies>
+  <properties>
+    <hudson.plugins.jira.JiraProjectProperty plugin="jira@3.2.1"/>
+    <org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty/>
+    <com.sonyericsson.rebuild.RebuildSettings plugin="rebuild@1.32">
+      <autoRebuild>false</autoRebuild>
+      <rebuildDisabled>false</rebuildDisabled>
+    </com.sonyericsson.rebuild.RebuildSettings>
+    <hudson.model.ParametersDefinitionProperty>
+      <parameterDefinitions>
+        <hudson.model.BooleanParameterDefinition>
+          <name>IS_DEPLOY</name>
+          <description></description>
+          <defaultValue>true</defaultValue>
+        </hudson.model.BooleanParameterDefinition>
+        <hudson.model.BooleanParameterDefinition>
+          <name>IS_RESTART</name>
+          <description></description>
+          <defaultValue>false</defaultValue>
+        </hudson.model.BooleanParameterDefinition>
+        <hudson.model.StringParameterDefinition>
+          <name>BRANCH</name>
+          <description></description>
+          <defaultValue>feature/readFromBuildProperties</defaultValue>
+          <trim>false</trim>
+        </hudson.model.StringParameterDefinition>
+        <hudson.model.ChoiceParameterDefinition>
+          <name>DeployJob</name>
+          <description></description>
+          <choices class="java.util.Arrays$ArrayList">
+            <a class="string-array">
+              <string>Deploy1</string>
+              <string>Deploy2</string>
+              <string>Deploy3</string>
+            </a>
+          </choices>
+        </hudson.model.ChoiceParameterDefinition>
+      </parameterDefinitions>
+    </hudson.model.ParametersDefinitionProperty>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition" plugin="workflow-cps@2.90">
+    <script>def mailContent = &apos;&apos;
+pipeline{
+    agent any
+    options { disableConcurrentBuilds() }
+    
+	node {
+	stages {
+        stage(&apos;build&apos;) {
+            steps {
+                script {
+                    def buildJob = build job: &apos;BuildJob&apos;,
+                    parameters: [
+                        [ $class: &apos;StringParameterValue&apos;, name: &apos;BRANCH&apos;, value: &quot;${BRANCH}&quot; ]
+                        ]
+                    
+                    if(buildJob.result == &quot;SUCCESS&quot;) {
+                        echo &quot;Build Status: ${buildJob.result}&quot;
+                        def jobName = &quot;${buildJob.buildVariables.JOB_NAME}&quot;
+                        def buildId = &quot;${buildJob.buildVariables.BUILD_ID}&quot;
+                        echo &quot;${jobName}&quot;
+                        echo &quot;${buildId}&quot;
+                        env.BuildJobId = &quot;${jobName}#${buildId}&quot;
+                        echo &quot;BuildJobId=${env.BuildJobId}&quot;
+						sh &apos;&apos;&apos;FILE=./../BuildJob/buildvars.txt
+						if test -f &quot;$FILE&quot;; then
+							cat $FILE
+						fi&apos;&apos;&apos;
+						script {
+							mailContent = readFile(&apos;./../BuildJob/buildvars.txt&apos;).trim()
+						}
+                    }
+                                        
+                }
+            }
+        } 
+        
+        stage(&apos;Send Email&apos;) {
+            steps {
+				script {
+					emailBody = &quot;Dear team,\n\n&quot;
+					emailBody += &quot;A new build has been craeted for &quot; + &quot;$DeployJob&quot; + &quot;. Details below:\n\n&quot;
+					
+					if(env.IS_RESTART == &quot;true&quot; ) {
+					    emailBody += &quot;Propagation IS Required.\n\n&quot;
+					} else {
+					    emailBody += &quot;Propagation NOT Required.\n\n&quot;
+					}
+					
+					emailBody += mailContent
+					emailBody += &quot;\n\nKindly approve the deployment of the build. Follow the below link: \n\n&quot;  
+					emailBody += &quot;https://nonp-jenkins-01.ent.foxtel.com.au:8443/jenkins/job/Core/job/ProofOfConcept/job/Seamless/job/OldStuff/job/BuildAndDeploy\n\n&quot;
+					
+					
+					emailext body: emailBody,
+					recipientProviders: [buildUser()], 
+					subject: &apos;A new build has been scheduled for $DeployJob&apos;, 
+					to: &apos;ankur.dhawan@foxtel.com.au, Claudio.Rodrigues@foxtel.com.au&apos;
+				}
+			}
+        }
+        }
+		}
+		
+		
+        stage(&apos;Approve Build&apos;) {
+            steps {
+                script {
+                   if(&quot;$DeployJob&quot; != &quot;Deploy1&quot;) 
+                   {
+                       input(&apos;Do you want to proceed?&apos;)
+                   }
+                }
+            }
+        }
+        
+		node {
+		stages {
+        stage(&apos;deploy&apos;) {
+            steps {
+               script {
+                   emailBody = &quot;Dear team,\n\n&quot;
+					emailBody += &quot;Build for &quot; + &quot;$DeployJob&quot; + &quot; has been approved.\n\n&quot;
+						
+					if(env.IS_RESTART == &quot;true&quot; ) {
+					    emailBody += &quot;Propagation IS Required.\n\n&quot;
+					} else {
+					    emailBody += &quot;Propagation NOT Required.\n\n&quot;
+					}
+					
+					emailBody += mailContent
+					
+					emailext body: emailBody,
+					recipientProviders: [buildUser()], 
+					subject: &apos;A new build has been scheduled for $TargetBox&apos;, 
+					to: &apos;ankur.dhawan@foxtel.com.au, Claudio.Rodrigues@foxtel.com.au&apos;
+			   
+                   if(&quot;$DeployJob&quot; == &quot;Deploy1&quot;) 
+                   {
+                       TargetHost = &quot;DeployJob&quot;
+                   } else if(&quot;$DeployJob&quot; == &quot;Deploy2&quot;) {
+                       TargetHost = &quot;DeployJob2&quot;
+                   } else if(&quot;$DeployJob&quot; == &quot;Deploy3&quot;) {
+                       TargetHost = &quot;../DeployJob3&quot;
+                   }
+                   
+                   if (!TargetHost) {
+                        echo &apos;ERROR: No targets specified. Have you set TARGETS environment variable?&apos;
+                        error()
+                    }
+                   
+                   build job: &quot;$TargetHost&quot;,
+                       parameters: [
+                        [ $class: &apos;BooleanParameterValue&apos;, name: &apos;Deploy&apos;, value: &quot;${IS_DEPLOY}&quot; ],
+                        [ $class: &apos;BooleanParameterValue&apos;, name: &apos;Restart&apos;, value: &quot;${IS_RESTART}&quot; ],
+                        run(name: &apos;Build&apos;, runId: &quot;${env.BuildJobId}&quot; )
+                        ] 
+                }
+            }
+        }   
+    }
+	}
+    
+}</script>
+    <sandbox>true</sandbox>
+  </definition>
+  <triggers/>
+  <disabled>false</disabled>
+</flow-definition>
