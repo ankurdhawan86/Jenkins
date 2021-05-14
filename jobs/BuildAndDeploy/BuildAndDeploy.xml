@@ -57,9 +57,7 @@
 pipeline{
     agent any
     options { disableConcurrentBuilds() }
-    
-	node {
-	stages {
+    stages{
         stage(&apos;build&apos;) {
             steps {
                 script {
@@ -113,8 +111,6 @@ pipeline{
 				}
 			}
         }
-        }
-		}
 		
 		
         stage(&apos;Approve Build&apos;) {
@@ -128,8 +124,6 @@ pipeline{
             }
         }
         
-		node {
-		stages {
         stage(&apos;deploy&apos;) {
             steps {
                script {
@@ -172,9 +166,8 @@ pipeline{
                 }
             }
         }   
+
     }
-	}
-    
 }</script>
     <sandbox>true</sandbox>
   </definition>
