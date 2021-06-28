@@ -6,6 +6,13 @@ The project makes use of antProj to build (create a jar) and deploy (execute the
 
 The BuildAndDeploy job also sends a mail to listed users once the build has been done to approve so deployment can be done. The job blocks till listed user approves the build to be deployed. Also, another mail is sent when the job is approved.
 
+
+Importing a job:
+java -jar jenkins-cli.jar -s https://jenkins-uri:port/jenkins -auth uname:password get-job Core/ProofOfConcept/Seamless/OldStuff/BuildJob > BuildJob.xml
+
+Exporting:
+java -jar jenkins-cli.jar -s https://jenkins-uri:port/jenkins -auth uname:password create-job Core/ProofOfConcept/Seamless/OldStuff/BuildJob < BuildJob.xml
+
 Next step is :
 Resend a mail when the job has not been approved for 24 hours.
 Probably try unblocking the agent till the job is waiting for approval.
